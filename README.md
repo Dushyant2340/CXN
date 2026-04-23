@@ -1,20 +1,22 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# CXN AI (Chauhan X Numberdar)
 
-# Run and deploy your AI Studio app
+CXN AI is a brotherly, energetic, and positive Hinglish AI assistant.
 
-This contains everything you need to run your app locally.
+## Features
+- Gemini-style UI
+- Voice Input (Hinglish)
+- Voice Output (TTS)
+- Image Generation
+- Image Analysis
+- Chat History (Local Storage)
 
-View your app in AI Studio: https://ai.studio/apps/14ab624a-5ab0-4feb-931f-cae2e70f8b19
+## Setup
+1. Clone the repository.
+2. Install dependencies: `npm install`
+3. Set your `GEMINI_API_KEY` in a `.env` file.
+4. Run development server: `npm run dev`
+5. Build for production: `npm run build`
 
-## Run Locally
-
-**Prerequisites:**  Node.js
-
-
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+## Deployment Notes
+- **OutDir**: The build output directory has been changed to `build` (from the default `dist`) to match Render's default settings.
+- **Node Version**: Recommended Node.js version is 18+.
