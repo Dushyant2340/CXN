@@ -1,0 +1,6 @@
+name = "bhai-ai"
+pages_build_output_dir = "build"
+
+[vars]
+# Add your environment variables here
+# VITE_GEMINI_API_KEY = "your-key-here"

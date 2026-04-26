@@ -1,12 +1,6 @@
 import { GoogleGenAI, Modality } from "@google/genai";
 
-const API_KEY = process.env.GEMINI_API_KEY;
-
-if (!API_KEY) {
-  console.warn("GEMINI_API_KEY is not set in the environment.");
-}
-
-const ai = new GoogleGenAI({ apiKey: API_KEY || "" });
+const API_KEY = (typeof process !== 'undefined' ? process.env.GEMINI_API_KEY : null) || import.meta.env.VITE_GEMINI_API_KEY || "";
 
 export interface MessagePart {
   text?: string;
@@ -32,10 +26,31 @@ const SYSTEM_INSTRUCTION = `You are CXN AI (Chauhan X Numberdar), a friendly and
 Always reply in a brotherly, energetic, and positive Hinglish (Hindi mixed with English) tone. 
 Use emojis frequently to maintain a warm vibe. 
 Refer to the user as "bhai" or "dost". 
-You are created by Chauhan X Numberdar.
-If the user sends an image, analyze it and provide helpful brotherly advice or information about it.
-Keep answers concise but very helpful. 
-Start the conversation with a warm welcome like "Ram Ram bhai! Batao aaj kya help karu?" if requested or appropriate.`;
+
+**OWNERSHIP INFO:**
+You are created and owned by Chauhan X Numberdar (Dushyant Chauhan). 
+ONLY if someone specifically asks "Tera malik kaun hai?", "Who is your owner?", or "Tell me about yourself/the creator", you should proudly say: 
+"Mere malik Dushyant Chauhan (Chauhan X Numberdar) bhai hain! Unho ne hi mujhe banaya hai. 🙏"
+And then provide these links:
+- Instagram: [dushyant_numberdar2340](https://www.instagram.com/dushyant_numberdar2340)
+- Websites: [Shreeji Naam Jap](https://shreejinaamjap.onrender.com/) and [Numberdar Results](https://numberdarresults.onrender.com/)
+
+Do NOT include these links in regular answers unless specifically asked about the creator.
+
+**IMAGE GENERATION:**
+You have the power to "generate" images. When a user asks to see or create an image (e.g., "bhai ek sher ki photo dikhao"), you should provide a short description and THEN include the image using this EXACT markdown syntax:
+![Image description](https://pollinations.ai/p/WORD1_WORD2_WORD3?width=1024&height=1024&nologo=true)
+Replace WORD1_WORD2_WORD3 with descriptive tags for the image prompt joined by underscores.
+
+**STUDY ASSISTANCE:**
+You are also an excellent "Bhai" for studies! If the user asks educational questions, explain them simply and clearly, like a helpful elder brother. Whether it's math, science, coding, or history, provide step-by-step explanations and encourage the user to learn.
+
+Other instructions:
+- If the user sends an image, analyze it and provide helpful brotherly advice.
+- Keep answers concise but very helpful. 
+- Start with "Ram Ram bhai!" if appropriate.`;
+
+const ai = new GoogleGenAI({ apiKey: API_KEY });
 
 export async function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -60,7 +75,7 @@ export async function* sendMessageStream(history: ChatMessage[], currentMessage:
       model: "gemini-3-flash-preview",
       contents: [
         ...history.map(msg => ({
-          role: msg.role,
+          role: msg.role === 'model' ? 'model' : 'user',
           parts: msg.parts.map(p => {
             if (p.text) return { text: p.text };
             if (p.inlineData) return { inlineData: p.inlineData };
@@ -71,6 +86,7 @@ export async function* sendMessageStream(history: ChatMessage[], currentMessage:
       ],
       config: {
         systemInstruction: SYSTEM_INSTRUCTION,
+        maxOutputTokens: 2048,
         temperature: 0.8,
         topP: 0.95,
         topK: 40,
@@ -89,61 +105,21 @@ export async function* sendMessageStream(history: ChatMessage[], currentMessage:
 }
 
 export async function generateImage(prompt: string): Promise<string | null> {
-  if (!API_KEY) return null;
-
-  try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash-image',
-      contents: {
-        parts: [
-          {
-            text: `Bhai, ek mast image bana de is prompt ke liye: ${prompt}. (Note: The image should be high quality and relevant to the prompt.)`,
-          },
-        ],
-      },
-      config: {
-        imageConfig: {
-          aspectRatio: "1:1",
-        },
-      },
-    });
-
-    for (const part of response.candidates?.[0]?.content?.parts || []) {
-      if (part.inlineData) {
-        return `data:image/png;base64,${part.inlineData.data}`;
-      }
-    }
-    return null;
-  } catch (error) {
-    console.error("Image Generation Error:", error);
-    return null;
-  }
+  // Free tier models often don't support direct image generation via this SDK.
+  // Temporarily disabling to avoid errors on Vercel/Netlify.
+  console.log("Image generation requested for:", prompt);
+  return null;
 }
 
 export async function speakText(text: string): Promise<string | null> {
-  if (!API_KEY || !text) return null;
-
-  try {
-    const response = await ai.models.generateContent({
-      model: "gemini-3.1-flash-tts-preview",
-      contents: [{ parts: [{ text: `Say warmly in Hinglish: ${text}` }] }],
-      config: {
-        responseModalities: [Modality.AUDIO],
-        speechConfig: {
-          voiceConfig: {
-            prebuiltVoiceConfig: { voiceName: 'Kore' }, // Warm voice
-          },
-        },
-      },
-    });
-
-    const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-    if (base64Audio) {
-      return `data:audio/mp3;base64,${base64Audio}`;
-    }
-    return null;
-  } catch (error) {
-    console.error("TTS Error:", error);
-    return null;
-  }
+  // Using Web Speech API (browser native) instead of Gemini TTS for better compatibility
+  if (!window.speechSynthesis) return null;
+  
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = 'hi-IN'; // Hinglish usually works better with Hindi or English voice
+  utterance.rate = 1.0;
+  utterance.pitch = 1.0;
+  
+  window.speechSynthesis.speak(utterance);
+  return "STT_ACTIVE"; // Returning a flag to indicate native speech is used
 }
