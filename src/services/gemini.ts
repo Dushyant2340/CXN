@@ -1,6 +1,16 @@
-import { GoogleGenAI, Modality } from "@google/genai";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
-const API_KEY = (typeof process !== 'undefined' ? process.env.GEMINI_API_KEY : null) || import.meta.env.VITE_GEMINI_API_KEY || "";
+const getApiKey = () => {
+  try {
+    return (typeof process !== 'undefined' ? process.env.GEMINI_API_KEY : null) || 
+           (import.meta.env ? import.meta.env.VITE_GEMINI_API_KEY : null) || 
+           "";
+  } catch (e) {
+    return "";
+  }
+};
+
+const API_KEY = getApiKey();
 
 export interface MessagePart {
   text?: string;
@@ -50,11 +60,25 @@ Other instructions:
 - Keep answers concise but very helpful. 
 - Start with "Ram Ram bhai!" if appropriate.`;
 
-const ai = new GoogleGenAI(API_KEY);
-const model = ai.getGenerativeModel({ 
-  model: "gemini-1.5-flash",
-  systemInstruction: SYSTEM_INSTRUCTION
-});
+let genAI: any = null;
+let model: any = null;
+
+function getModel() {
+  if (!API_KEY) return null;
+  if (!model) {
+    try {
+      genAI = new GoogleGenerativeAI(API_KEY);
+      model = genAI.getGenerativeModel({ 
+        model: "gemini-1.5-flash",
+        systemInstruction: SYSTEM_INSTRUCTION
+      });
+    } catch (error) {
+      console.error("Failed to initialize Gemini:", error);
+      return null;
+    }
+  }
+  return model;
+}
 
 export async function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -69,13 +93,15 @@ export async function fileToBase64(file: File): Promise<string> {
 }
 
 export async function* sendMessageStream(history: ChatMessage[], currentMessage: MessagePart[]) {
-  if (!API_KEY) {
-    yield "Bhai, Gemini API key missing hai. Server settings check karle!";
+  const activeModel = getModel();
+  
+  if (!API_KEY || !activeModel) {
+    yield "Bhai, Gemini API key missing hai. Ya to API key sahi nahi hai. Server settings check karle!";
     return;
   }
 
   try {
-    const chat = model.startChat({
+    const chat = activeModel.startChat({
       history: history.slice(-10).map(msg => ({
         role: msg.role === 'model' ? 'model' : 'user',
         parts: msg.parts.map(p => {
