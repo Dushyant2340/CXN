@@ -66,7 +66,7 @@ export function WelcomePage({ onSuggestionClick, onSend }: WelcomePageProps) {
       <div className="absolute top-4 right-8 flex items-center gap-4">
         <button className="flex items-center gap-2 px-4 py-1.5 bg-blue-50 text-blue-700 rounded-full text-sm font-semibold hover:bg-blue-100 transition-colors">
           <Sparkles size={14} className="fill-blue-700" />
-          Upgrade to Google AI Plus
+          CXN AI Premium
         </button>
         <button className="p-2 text-slate-500 hover:bg-slate-100 rounded-lg transition-colors">
           <PanelLeft size={20} />
@@ -97,7 +97,7 @@ export function WelcomePage({ onSuggestionClick, onSend }: WelcomePageProps) {
             type="text"
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
-            placeholder="Ask Gemini"
+            placeholder="Ask CXN AI..."
             onKeyDown={handleKeyDown}
             className="w-full bg-transparent border-none outline-none text-xl placeholder:text-slate-400 mb-6 pr-12"
           />

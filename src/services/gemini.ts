@@ -50,7 +50,11 @@ Other instructions:
 - Keep answers concise but very helpful. 
 - Start with "Ram Ram bhai!" if appropriate.`;
 
-const ai = new GoogleGenAI({ apiKey: API_KEY });
+const ai = new GoogleGenAI(API_KEY);
+const model = ai.getGenerativeModel({ 
+  model: "gemini-1.5-flash",
+  systemInstruction: SYSTEM_INSTRUCTION
+});
 
 export async function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -71,31 +75,33 @@ export async function* sendMessageStream(history: ChatMessage[], currentMessage:
   }
 
   try {
-    const response = await ai.models.generateContentStream({
-      model: "gemini-3-flash-preview",
-      contents: [
-        ...history.map(msg => ({
-          role: msg.role === 'model' ? 'model' : 'user',
-          parts: msg.parts.map(p => {
-            if (p.text) return { text: p.text };
-            if (p.inlineData) return { inlineData: p.inlineData };
-            return { text: "" };
-          })
-        })),
-        { role: 'user', parts: currentMessage }
-      ],
-      config: {
-        systemInstruction: SYSTEM_INSTRUCTION,
-        maxOutputTokens: 2048,
-        temperature: 0.8,
+    const chat = model.startChat({
+      history: history.slice(-10).map(msg => ({
+        role: msg.role === 'model' ? 'model' : 'user',
+        parts: msg.parts.map(p => {
+          if (p.text) return { text: p.text };
+          if (p.inlineData) return { inlineData: p.inlineData };
+          return { text: "" };
+        })
+      })),
+      generationConfig: {
+        maxOutputTokens: 1024,
+        temperature: 0.7,
         topP: 0.95,
         topK: 40,
       },
     });
 
-    for await (const chunk of response) {
-      if (chunk.text) {
-        yield chunk.text;
+    const result = await chat.sendMessageStream(currentMessage.map(p => {
+      if (p.text) return { text: p.text };
+      if (p.inlineData) return { inlineData: p.inlineData };
+      return { text: "" };
+    }));
+
+    for await (const chunk of result.stream) {
+      const text = chunk.text();
+      if (text) {
+        yield text;
       }
     }
   } catch (error) {
