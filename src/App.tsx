@@ -9,27 +9,56 @@ import { Volume2, VolumeX } from 'lucide-react';
 import { cn } from './lib/utils';
 import { ThinkingIndicator } from './components/ThinkingIndicator';
 import { WelcomePage } from './components/WelcomePage';
+import { AuthModal } from './components/AuthModal';
+import { useAuth } from './lib/AuthContext';
+import { dbService } from './lib/dbService';
+
+interface AppChatMessage extends ChatMessage {
+  fileInfo?: {
+    preview: string;
+    type: string;
+    name: string;
+  }[];
+}
 
 export default function App() {
+  const { user } = useAuth();
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<(ChatMessage & { imagePreview?: string })[]>([]);
+  const [messages, setMessages] = useState<AppChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isTTSActive, setIsTTSActive] = useState(false);
+  const [selectedModel, setSelectedModel] = useState("gemini-3-flash-preview");
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
+  // Load Sessions
   useEffect(() => {
-    const loadedSessions = storage.getSessions();
-    setSessions(loadedSessions);
-    
-    // If sessions exist, load the latest one, otherwise start a clean state
-    if (loadedSessions.length > 0) {
-      loadSession(loadedSessions[0].id);
-    } else {
-      startNewChat();
-    }
-  }, []);
+    const loadData = async () => {
+      let loadedSessions: ChatSession[] = [];
+      if (user) {
+        // Load from Firestore
+        try {
+          loadedSessions = await dbService.getSessions(user.uid);
+        } catch (err) {
+          console.error("Firestore error, falling back to local:", err);
+          loadedSessions = storage.getSessions();
+        }
+      } else {
+        // Load from LocalStorage
+        loadedSessions = storage.getSessions();
+      }
+      
+      setSessions(loadedSessions);
+      if (loadedSessions.length > 0) {
+        loadSession(loadedSessions[0].id);
+      } else {
+        startNewChat();
+      }
+    };
+    loadData();
+  }, [user]);
 
   const scrollToBottom = () => {
     if (scrollRef.current && messages.length > 0) {
@@ -44,12 +73,12 @@ export default function App() {
     scrollToBottom();
   }, [messages, isLoading]);
 
-  const saveCurrentSession = (updatedMessages: (ChatMessage & { imagePreview?: string })[]) => {
+  const saveCurrentSession = async (updatedMessages: any[]) => {
     if (!currentSessionId || updatedMessages.length === 0) return;
 
     const firstUserMsg = updatedMessages.find(m => m.role === 'user');
     const title = firstUserMsg 
-      ? (firstUserMsg.parts.find(p => p.text)?.text?.slice(0, 30) || 'New Chat') 
+      ? (firstUserMsg.parts.find((p: any) => p.text)?.text?.slice(0, 30) || 'New Chat') 
       : 'Bhai AI help...';
 
     const session: ChatSession = {
@@ -59,23 +88,35 @@ export default function App() {
       createdAt: Date.now()
     };
 
-    storage.saveSession(session);
-    setSessions(storage.getSessions());
+    if (user) {
+      await dbService.saveSession(user.uid, session);
+      const newSessions = await dbService.getSessions(user.uid);
+      setSessions(newSessions);
+    } else {
+      storage.saveSession(session);
+      setSessions(storage.getSessions());
+    }
   };
 
-  const handleSend = async (text: string, file: File | null) => {
+  const handleSend = async (text: string, files: File[]) => {
     const currentParts: MessagePart[] = [];
-    let imagePreview: string | undefined;
+    let fileInfo: AppChatMessage['fileInfo'] = [];
 
-    if (file) {
-      const base64 = await fileToBase64(file);
-      currentParts.push({
-        inlineData: {
-          mimeType: file.type,
-          data: base64
-        }
-      });
-      imagePreview = URL.createObjectURL(file);
+    if (files && files.length > 0) {
+      for (const file of files) {
+        const base64 = await fileToBase64(file);
+        currentParts.push({
+          inlineData: {
+            mimeType: file.type,
+            data: base64
+          }
+        });
+        fileInfo.push({
+          preview: URL.createObjectURL(file),
+          type: file.type,
+          name: file.name
+        });
+      }
     }
 
     if (text.trim()) {
@@ -84,45 +125,37 @@ export default function App() {
 
     if (currentParts.length === 0) return;
 
-    const userMsg: ChatMessage & { imagePreview?: string } = {
+    const userMsg: AppChatMessage = {
       role: 'user',
       parts: currentParts,
-      imagePreview
+      fileInfo
     };
 
     const newMessages = [...messages, userMsg];
     setMessages(newMessages);
     setIsLoading(true);
 
-    // Image Generation Intent Detection
+    // Image Gen (Dummy for now as configured in gemini.ts)
     const imageGenRegex = /(bana|generate|create|dhikha|show).*(image|photo|picture|tasveer|pic)/i;
     const isImageGen = text && imageGenRegex.test(text);
 
     if (isImageGen && text.length > 5) {
-      try {
-        const imageUrl = await generateImage(text);
-        if (imageUrl) {
-          const aiMsg: ChatMessage & { imagePreview?: string } = {
-            role: 'model',
-            parts: [{ text: "Bhai, ye rahi aapki image! Kaisi lagi? 🔥" }],
-            imagePreview: imageUrl
-          };
-          const finalMessages = [...newMessages, aiMsg];
-          setMessages(finalMessages);
-          saveCurrentSession(finalMessages);
-          
-          if (isTTSActive) {
-            const audioData = await speakText("Bhai, ye rahi aapki image! Kaisi lagi?");
-            if (audioData) {
-              if (audioRef.current) audioRef.current.src = audioData;
-              audioRef.current?.play();
-            }
-          }
-          setIsLoading(false);
-          return;
-        }
-      } catch (err) {
-        console.error("Image Gen failed", err);
+      const imageUrl = await generateImage(text);
+      if (imageUrl) {
+        const aiMsg: AppChatMessage = {
+          role: 'model',
+          parts: [{ text: "Bhai, ye rahi aapki image! Kaisi lagi? 🔥" }],
+          fileInfo: [{
+            preview: imageUrl,
+            type: 'image/jpeg',
+            name: 'Generated Image'
+          }]
+        };
+        const finalMessages = [...newMessages, aiMsg];
+        setMessages(finalMessages);
+        saveCurrentSession(finalMessages);
+        setIsLoading(false);
+        return;
       }
     }
 
@@ -133,7 +166,7 @@ export default function App() {
     setMessages(prev => [...prev, aiMsgPlaceholder]);
 
     try {
-      const stream = sendMessageStream(historyForAPI, currentParts);
+      const stream = sendMessageStream(historyForAPI, currentParts, selectedModel);
       for await (const chunk of stream) {
         aiResponse += chunk;
         setMessages(prev => {
@@ -143,15 +176,11 @@ export default function App() {
         });
       }
 
-      const finalMessages = [...newMessages, { role: 'model' as const, parts: [{ text: aiResponse }] }];
+      const finalMessages = [...newMessages, { role: 'model', parts: [{ text: aiResponse }] }];
       saveCurrentSession(finalMessages);
 
       if (isTTSActive && aiResponse) {
-        const audioData = await speakText(aiResponse);
-        if (audioData) {
-          if (audioRef.current) audioRef.current.src = audioData;
-          audioRef.current?.play();
-        }
+        speakText(aiResponse);
       }
     } catch (err) {
       console.error(err);
@@ -167,36 +196,41 @@ export default function App() {
   };
 
   const loadSession = (id: string) => {
-    const session = storage.getSession(id);
+    const session = sessions.find(s => s.id === id);
     if (session) {
       setCurrentSessionId(id);
-      setMessages(session.messages);
+      setMessages(session.messages as AppChatMessage[]);
     }
   };
 
-  const deleteSession = (id: string) => {
-    storage.deleteSession(id);
-    const remaining = storage.getSessions();
-    setSessions(remaining);
+  const deleteSession = async (id: string) => {
+    if (user) {
+      await dbService.deleteSession(id);
+      const remaining = await dbService.getSessions(user.uid);
+      setSessions(remaining);
+    } else {
+      storage.deleteSession(id);
+      const remaining = storage.getSessions();
+      setSessions(remaining);
+    }
     
     if (currentSessionId === id) {
-      if (remaining.length > 0) {
-        loadSession(remaining[0].id);
-      } else {
-        startNewChat();
-      }
+      startNewChat();
     }
   };
 
   return (
     <div className="flex h-screen w-full bg-white overflow-hidden">
       <audio ref={audioRef} hidden />
+      <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} />
+      
       <Sidebar 
         onNewChat={startNewChat} 
         sessions={sessions}
         currentSessionId={currentSessionId || undefined}
         onSelectSession={loadSession}
         onDeleteSession={deleteSession}
+        onOpenAuth={() => setIsAuthModalOpen(true)}
         className="hidden md:flex" 
       />
 
@@ -208,6 +242,15 @@ export default function App() {
             <span className="text-sm font-semibold text-slate-900">CXN Active Mode</span>
           </div>
           <div className="flex gap-2 items-center">
+            <select 
+              value={selectedModel}
+              onChange={(e) => setSelectedModel(e.target.value)}
+              className="bg-slate-50 border border-slate-100 text-[11px] font-bold uppercase tracking-wider text-slate-900 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-slate-200 transition-all cursor-pointer"
+            >
+              <option value="gemini-3-flash-preview">Flash Preview</option>
+              <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
+              <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
+            </select>
             <button 
               onClick={() => setIsTTSActive(!isTTSActive)}
               className={cn(
@@ -239,8 +282,8 @@ export default function App() {
         >
           {messages.length === 0 ? (
             <WelcomePage 
-              onSuggestionClick={(text) => handleSend(text, null)} 
-              onSend={(text) => handleSend(text, null)}
+              onSuggestionClick={(text) => handleSend(text, [])} 
+              onSend={(text) => handleSend(text, [])}
             />
           ) : (
             <div className="flex flex-col gap-10">
@@ -250,12 +293,12 @@ export default function App() {
                     key={i}
                     role={msg.role}
                     content={msg.parts.find(p => p.text)?.text || ""}
-                    image={msg.imagePreview}
+                    fileInfo={msg.fileInfo}
                   />
                 ))}
               </AnimatePresence>
               
-              {isLoading && !messages[messages.length - 1].parts[0].text && (
+              {isLoading && (messages.length === 0 || (messages[messages.length - 1].role === 'user')) && (
                 <ThinkingIndicator />
               )}
             </div>
@@ -263,7 +306,7 @@ export default function App() {
         </div>
 
         {/* Input Area */}
-        <AnimatePresence>
+        <AnimatePresence shadow-none>
           {messages.length > 0 && (
             <motion.div 
               initial={{ y: 100 }}

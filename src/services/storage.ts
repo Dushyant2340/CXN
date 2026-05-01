@@ -4,8 +4,16 @@ const STORAGE_KEY = 'cxn_ai_sessions';
 
 export const storage = {
   getSessions: (): ChatSession[] => {
-    const data = localStorage.getItem(STORAGE_KEY);
-    return data ? JSON.parse(data) : [];
+    try {
+      const data = localStorage.getItem(STORAGE_KEY);
+      if (!data) return [];
+      const parsed = JSON.parse(data);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (error) {
+      console.error("Storage load failed, clearing corrupted data:", error);
+      localStorage.removeItem(STORAGE_KEY);
+      return [];
+    }
   },
 
   saveSession: (session: ChatSession) => {

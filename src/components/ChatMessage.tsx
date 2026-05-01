@@ -3,13 +3,19 @@ import remarkGfm from 'remark-gfm';
 import { motion } from 'motion/react';
 import { cn } from '@/src/lib/utils';
 
+import { FileText } from 'lucide-react';
+
 interface ChatMessageProps {
   role: 'user' | 'model';
   content: string;
-  image?: string;
+  fileInfo?: {
+    preview: string;
+    type: string;
+    name: string;
+  }[];
 }
 
-export function ChatMessage({ role, content, image }: ChatMessageProps) {
+export function ChatMessage({ role, content, fileInfo }: ChatMessageProps) {
   const isAI = role === 'model';
 
   return (
@@ -32,12 +38,33 @@ export function ChatMessage({ role, content, image }: ChatMessageProps) {
         "flex flex-col gap-2 max-w-[85%]",
         !isAI && "items-end"
       )}>
-        {image && (
-          <img 
-            src={image} 
-            alt="User uploaded" 
-            className="max-w-[280px] rounded-2xl border border-gray-100 shadow-sm"
-          />
+        {fileInfo && fileInfo.length > 0 && (
+          <div className={cn(
+            "flex flex-wrap gap-2 mb-1",
+            !isAI && "justify-end"
+          )}>
+            {fileInfo.map((file, idx) => (
+              <div key={idx}>
+                {file.type === 'application/pdf' ? (
+                  <div className="flex items-center gap-3 bg-red-50 border border-red-100 p-3 rounded-xl max-w-[240px]">
+                    <div className="w-8 h-8 bg-red-500 rounded-lg flex items-center justify-center text-white shrink-0">
+                      <FileText size={16} />
+                    </div>
+                    <div className="flex flex-col overflow-hidden">
+                      <span className="text-[10px] font-bold text-red-900 truncate uppercase tracking-tight">{file.name}</span>
+                      <span className="text-[9px] text-red-600 font-medium">PDF Document</span>
+                    </div>
+                  </div>
+                ) : (
+                  <img 
+                    src={file.preview} 
+                    alt="Uploaded attachment" 
+                    className="max-w-[200px] h-auto rounded-xl border border-gray-100 shadow-sm object-cover"
+                  />
+                )}
+              </div>
+            ))}
+          </div>
         )}
         
         <div className={cn(

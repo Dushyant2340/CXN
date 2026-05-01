@@ -1,10 +1,12 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenAI } from "@google/genai";
 
 const getApiKey = () => {
+  if (typeof process !== 'undefined' && process.env.GEMINI_API_KEY) {
+    return process.env.GEMINI_API_KEY;
+  }
   try {
-    return (typeof process !== 'undefined' ? process.env.GEMINI_API_KEY : null) || 
-           (import.meta.env ? import.meta.env.VITE_GEMINI_API_KEY : null) || 
-           "";
+    // @ts-ignore
+    return import.meta.env.VITE_GEMINI_API_KEY || "";
   } catch (e) {
     return "";
   }
@@ -28,7 +30,7 @@ export interface ChatMessage {
 export interface ChatSession {
   id: string;
   title: string;
-  messages: (ChatMessage & { imagePreview?: string })[];
+  messages: (ChatMessage & { fileInfo?: any })[];
   createdAt: number;
 }
 
@@ -56,29 +58,11 @@ Replace WORD1_WORD2_WORD3 with descriptive tags for the image prompt joined by u
 You are also an excellent "Bhai" for studies! If the user asks educational questions, explain them simply and clearly, like a helpful elder brother. Whether it's math, science, coding, or history, provide step-by-step explanations and encourage the user to learn.
 
 Other instructions:
-- If the user sends an image, analyze it and provide helpful brotherly advice.
+- If the user sends an image or PDF, analyze it and provide helpful brotherly advice.
 - Keep answers concise but very helpful. 
 - Start with "Ram Ram bhai!" if appropriate.`;
 
-let genAI: any = null;
-let model: any = null;
-
-function getModel() {
-  if (!API_KEY) return null;
-  if (!model) {
-    try {
-      genAI = new GoogleGenerativeAI(API_KEY);
-      model = genAI.getGenerativeModel({ 
-        model: "gemini-1.5-flash",
-        systemInstruction: SYSTEM_INSTRUCTION
-      });
-    } catch (error) {
-      console.error("Failed to initialize Gemini:", error);
-      return null;
-    }
-  }
-  return model;
-}
+const ai = new GoogleGenAI({ apiKey: API_KEY });
 
 export async function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -92,66 +76,94 @@ export async function fileToBase64(file: File): Promise<string> {
   });
 }
 
-export async function* sendMessageStream(history: ChatMessage[], currentMessage: MessagePart[]) {
-  const activeModel = getModel();
-  
-  if (!API_KEY || !activeModel) {
-    yield "Bhai, Gemini API key missing hai. Ya to API key sahi nahi hai. Server settings check karle!";
+export async function* sendMessageStream(history: ChatMessage[], currentMessage: MessagePart[], aiModel: string = "gemini-3-flash-preview") {
+  if (!API_KEY) {
+    yield "Bhai, API key missing hai. Settings check karle ek baar! 🔑";
     return;
   }
 
   try {
-    const chat = activeModel.startChat({
-      history: history.slice(-10).map(msg => ({
-        role: msg.role === 'model' ? 'model' : 'user',
-        parts: msg.parts.map(p => {
-          if (p.text) return { text: p.text };
-          if (p.inlineData) return { inlineData: p.inlineData };
-          return { text: "" };
-        })
-      })),
-      generationConfig: {
-        maxOutputTokens: 1024,
+    const historyForAPI = history.map(msg => ({
+      role: msg.role === 'model' ? 'model' : 'user',
+      parts: msg.parts.map(p => {
+        if (p.text) return { text: p.text };
+        if (p.inlineData) return { inlineData: p.inlineData };
+        return { text: "" };
+      })
+    })).filter(msg => msg.parts.length > 0);
+
+    const mergedHistory: any[] = [];
+    for (const msg of historyForAPI) {
+      if (mergedHistory.length > 0 && mergedHistory[mergedHistory.length - 1].role === msg.role) {
+        mergedHistory[mergedHistory.length - 1].parts.push(...msg.parts);
+      } else {
+        mergedHistory.push({ ...msg });
+      }
+    }
+
+    if (mergedHistory.length > 0 && mergedHistory[0].role === 'model') {
+      mergedHistory.shift();
+    }
+
+    const finalHistory = mergedHistory.slice(-10);
+    if (finalHistory.length > 0 && finalHistory[0].role === 'model') {
+      finalHistory.shift();
+    }
+
+    const messageParts = currentMessage.map(p => {
+      if (p.text) return { text: p.text };
+      if (p.inlineData) return { inlineData: p.inlineData };
+      return null;
+    }).filter(p => p !== null) as any[];
+
+    if (messageParts.length === 0) return;
+
+    const streamResponse = await ai.models.generateContentStream({
+      model: aiModel,
+      contents: [...finalHistory, { role: 'user', parts: messageParts }],
+      config: {
+        systemInstruction: SYSTEM_INSTRUCTION,
         temperature: 0.7,
         topP: 0.95,
         topK: 40,
-      },
+      }
     });
 
-    const result = await chat.sendMessageStream(currentMessage.map(p => {
-      if (p.text) return { text: p.text };
-      if (p.inlineData) return { inlineData: p.inlineData };
-      return { text: "" };
-    }));
-
-    for await (const chunk of result.stream) {
-      const text = chunk.text();
-      if (text) {
-        yield text;
+    for await (const chunk of streamResponse) {
+      if (chunk.text) {
+        yield chunk.text;
       }
     }
-  } catch (error) {
-    console.error("Gemini API Error:", error);
-    yield "Bhai, lagta hai kuch technical locha ho gaya. Thodi der baad try karle! 🙏";
+  } catch (error: any) {
+    console.error("CXN AI Error Details:", error);
+    
+    const errorMsg = error?.message || "";
+    
+    if (errorMsg.includes('Safety')) {
+      yield "Bhai, ye topic thoda sensitive hai, rules ke hisab se main ispe baat nahi kar sakta. Kuch aur puchle! 🙏";
+    } else if (errorMsg.includes('API key')) {
+      yield "Bhai, API Key ka chakkar lag raha hai. Check kar tune `VITE_GEMINI_API_KEY` sahi se dala hai ya nahi! 🔑";
+    } else if (errorMsg.includes('fetch') || errorMsg.includes('Network')) {
+      yield "Bhai, network ya CORS ka locha hai. Check kar ki kya tera platform Gemini API ko allow kar raha hai! 🌐";
+    } else {
+      yield `Bhai, server side technical locha: ${errorMsg.slice(0, 50)}... Thodi der mein try kar! 🙏`;
+    }
   }
 }
 
 export async function generateImage(prompt: string): Promise<string | null> {
-  // Free tier models often don't support direct image generation via this SDK.
-  // Temporarily disabling to avoid errors on Vercel/Netlify.
   console.log("Image generation requested for:", prompt);
   return null;
 }
 
 export async function speakText(text: string): Promise<string | null> {
-  // Using Web Speech API (browser native) instead of Gemini TTS for better compatibility
   if (!window.speechSynthesis) return null;
   
   const utterance = new SpeechSynthesisUtterance(text);
-  utterance.lang = 'hi-IN'; // Hinglish usually works better with Hindi or English voice
+  utterance.lang = 'hi-IN';
   utterance.rate = 1.0;
   utterance.pitch = 1.0;
   
   window.speechSynthesis.speak(utterance);
-  return "STT_ACTIVE"; // Returning a flag to indicate native speech is used
+  return "STT_ACTIVE";
 }

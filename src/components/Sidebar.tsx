@@ -1,6 +1,9 @@
-import { MessageSquarePlus, Trash2 } from 'lucide-react';
+import { MessageSquarePlus, Trash2, LogOut, User as UserIcon, LogIn } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { ChatSession } from '../services/gemini';
+import { useAuth } from '../lib/AuthContext';
+import { auth } from '../lib/firebase';
+import { signOut } from 'firebase/auth';
 
 interface SidebarProps {
   onNewChat: () => void;
@@ -8,6 +11,7 @@ interface SidebarProps {
   currentSessionId?: string;
   onSelectSession: (id: string) => void;
   onDeleteSession: (id: string) => void;
+  onOpenAuth: () => void;
   className?: string;
 }
 
@@ -17,8 +21,11 @@ export function Sidebar({
   currentSessionId, 
   onSelectSession, 
   onDeleteSession,
+  onOpenAuth,
   className 
 }: SidebarProps) {
+  const { user } = useAuth();
+
   return (
     <aside className={cn("w-64 bg-slate-50 border-r border-slate-200 flex flex-col p-6 h-full transition-all", className)}>
       <div className="mb-8">
@@ -70,15 +77,34 @@ export function Sidebar({
       </nav>
 
       <div className="border-t border-slate-200 pt-6 mt-4">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-full bg-slate-200 border border-slate-300 flex items-center justify-center text-[10px] font-bold text-slate-500">
-            CL
+        {user ? (
+          <div className="flex items-center gap-3 group relative">
+            <div className="w-9 h-9 rounded-full bg-blue-100 border border-blue-200 flex items-center justify-center text-xs font-bold text-blue-600">
+              {user.displayName?.[0] || user.email?.[0] || '?'}
+            </div>
+            <div className="flex-1 overflow-hidden">
+              <p className="text-[11px] font-bold truncate leading-tight">{user.displayName || 'Bhai Log Member'}</p>
+              <p className="text-[10px] text-slate-400 truncate leading-none mt-1">{user.email}</p>
+            </div>
+            <button 
+              onClick={() => signOut(auth)}
+              className="p-1.5 hover:bg-red-50 hover:text-red-600 transition-colors rounded-lg text-slate-400"
+              title="Logout"
+            >
+              <LogOut size={16} />
+            </button>
           </div>
-          <div className="flex-1 overflow-hidden">
-            <p className="text-xs font-bold truncate">Bhai Log Account</p>
-            <p className="text-[10px] text-slate-400">Premium Member</p>
-          </div>
-        </div>
+        ) : (
+          <button 
+            onClick={onOpenAuth}
+            className="flex items-center gap-3 w-full p-2 hover:bg-slate-100 rounded-xl transition-colors group"
+          >
+            <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 group-hover:bg-blue-50 group-hover:text-blue-600 transition-colors">
+              <LogIn size={16} />
+            </div>
+            <span className="text-xs font-bold text-slate-600 group-hover:text-blue-600">Login / Signup</span>
+          </button>
+        )}
       </div>
     </aside>
   );

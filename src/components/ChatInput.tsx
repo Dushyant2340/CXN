@@ -16,15 +16,15 @@ interface SpeechRecognition extends EventTarget {
 }
 
 interface ChatInputProps {
-  onSend: (text: string, file: File | null) => void;
+  onSend: (text: string, files: File[]) => void;
   isLoading: boolean;
 }
 
 export function ChatInput({ onSend, isLoading }: ChatInputProps) {
   const [text, setText] = useState('');
   const [isListening, setIsListening] = useState(false);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [previewUrls, setPreviewUrls] = useState<{url: string, type: string, name: string}[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
 
@@ -64,25 +64,39 @@ export function ChatInput({ onSend, isLoading }: ChatInputProps) {
   };
 
   const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setSelectedFile(file);
-      const url = URL.createObjectURL(file);
-      setPreviewUrl(url);
+    const files = Array.from(e.target.files || []);
+    if (files.length > 0) {
+      setSelectedFiles(prev => [...prev, ...files]);
+      const newPreviews = files.map(file => ({
+        url: URL.createObjectURL(file),
+        type: file.type,
+        name: file.name
+      }));
+      setPreviewUrls(prev => [...prev, ...newPreviews]);
     }
   };
 
-  const removeFile = () => {
-    setSelectedFile(null);
-    setPreviewUrl(null);
+  const removeFile = (index: number) => {
+    setSelectedFiles(prev => prev.filter((_, i) => i !== index));
+    setPreviewUrls(prev => {
+      URL.revokeObjectURL(prev[index].url);
+      return prev.filter((_, i) => i !== index);
+    });
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const clearFiles = () => {
+    previewUrls.forEach(p => URL.revokeObjectURL(p.url));
+    setSelectedFiles([]);
+    setPreviewUrls([]);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const handleSend = () => {
-    if ((!text.trim() && !selectedFile) || isLoading) return;
-    onSend(text, selectedFile);
+    if ((!text.trim() && selectedFiles.length === 0) || isLoading) return;
+    onSend(text, selectedFiles);
     setText('');
-    removeFile();
+    clearFiles();
   };
 
   const handleKeyPress = (e: KeyboardEvent) => {
@@ -95,25 +109,39 @@ export function ChatInput({ onSend, isLoading }: ChatInputProps) {
   return (
     <div className="w-full max-w-4xl mx-auto px-4 pb-10">
       <AnimatePresence>
-        {previewUrl && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.9, y: 10 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.9, y: 10 }}
-            className="mb-4 relative inline-block"
-          >
-            <img 
-              src={previewUrl} 
-              alt="Preview" 
-              className="h-24 w-auto rounded-xl border-2 border-white shadow-lg object-cover"
-            />
-            <button
-              onClick={removeFile}
-              className="absolute -top-2 -right-2 bg-black text-white rounded-full p-1 shadow-md hover:bg-gray-800 transition-colors"
-            >
-              <X size={14} />
-            </button>
-          </motion.div>
+        {previewUrls.length > 0 && (
+          <div className="mb-4 flex flex-wrap gap-3">
+            {previewUrls.map((preview, idx) => (
+              <motion.div
+                key={idx + preview.name}
+                initial={{ opacity: 0, scale: 0.9, y: 10 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.9, y: 10 }}
+                className="relative group"
+              >
+                {preview.type === 'application/pdf' ? (
+                  <div className="h-20 w-20 rounded-xl border-2 border-white shadow-lg bg-red-50 flex items-center justify-center flex-col gap-1 overflow-hidden">
+                    <div className="bg-red-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded">PDF</div>
+                    <span className="text-[9px] text-red-700 font-medium truncate px-2 w-full text-center">
+                      {preview.name}
+                    </span>
+                  </div>
+                ) : (
+                  <img 
+                    src={preview.url} 
+                    alt="Preview" 
+                    className="h-20 w-20 rounded-xl border-2 border-white shadow-lg object-cover text-xs"
+                  />
+                )}
+                <button
+                  onClick={() => removeFile(idx)}
+                  className="absolute -top-1.5 -right-1.5 bg-black text-white rounded-full p-1 shadow-md hover:bg-gray-800 transition-colors"
+                >
+                  <X size={10} />
+                </button>
+              </motion.div>
+            ))}
+          </div>
         )}
       </AnimatePresence>
 
@@ -126,13 +154,14 @@ export function ChatInput({ onSend, isLoading }: ChatInputProps) {
           type="file"
           ref={fileInputRef}
           hidden
-          accept="image/*"
+          multiple
+          accept="image/*,.pdf"
           onChange={handleFileChange}
         />
         <button
           onClick={() => fileInputRef.current?.click()}
           className="w-10 h-10 flex items-center justify-center hover:bg-slate-50 rounded-full transition-colors text-slate-400 group shrink-0"
-          title="Attach image"
+          title="Attach images or PDFs"
         >
           <Camera size={20} className="group-hover:text-slate-900 transition-colors" />
         </button>
@@ -159,10 +188,10 @@ export function ChatInput({ onSend, isLoading }: ChatInputProps) {
 
         <button
           onClick={handleSend}
-          disabled={(!text.trim() && !selectedFile) || isLoading}
+          disabled={(!text.trim() && selectedFiles.length === 0) || isLoading}
           className={cn(
             "w-10 h-10 rounded-full flex items-center justify-center transition-all shrink-0",
-            (!text.trim() && !selectedFile)
+            (!text.trim() && selectedFiles.length === 0)
               ? "bg-slate-100 text-slate-400"
               : "bg-black text-white hover:scale-105 active:scale-95 shadow-md"
           )}
